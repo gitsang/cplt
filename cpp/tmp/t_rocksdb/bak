@@ -1,0 +1,85 @@
+#include <cassert>
+#include <iostream>
+#include <sys/time.h>
+#include <thread>
+#include <memory>
+#include "rocksdb/db.h"
+
+std::string sss = "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss";
+
+std::string partstr(const std::string &fullstr) {
+    /* only used for log */
+    if(fullstr.size() > 50) {
+        std::string partstr = fullstr.substr(0, 20);
+        partstr += "...";
+        partstr += "(size:" + std::to_string(fullstr.size()) + ")";
+        return partstr;
+    }
+    else {
+        return fullstr;
+    }
+}
+
+uint64_t gtm(){
+    struct timeval tm;
+    gettimeofday(&tm, 0);
+    uint64_t re = ((uint64_t)tm.tv_sec)*1000*1000 + tm.tv_usec;
+    return re;
+}
+
+void put_th(std::shared_ptr<rocksdb::WriteBatch> &b, int i) {
+    for(int j = 0; j < 1000; i++) {
+        std::string key   = "key_"   + std::to_string(i) + "_"+ std::to_string(j) + sss;
+        std::string field = "field_" + std::to_string(i) + "_"+ std::to_string(j) + sss;
+        std::string value = "value_" + std::to_string(i) + "_"+ std::to_string(j) + sss;
+        std::string aofpos = "10";
+        if(b.get() == NULL) {
+            b.reset(new rocksdb::WriteBatch());
+        }
+        b->Put(key, field);
+        b->Put(field, value);
+    }
+}
+
+void multi_put(std::shared_ptr<rocksdb::WriteBatch> &b) {
+    /* ********** start to write ********** */
+
+    int th_cnt = 4;
+    std::shared_ptr<std::thread> ths[th_cnt]; 
+    for(int i = 0; i < th_cnt; i++) {
+        ths[i].reset(new std::thread(put_th, std::ref(b), i));
+    }
+    for(int i = 0; i < th_cnt; i++) {
+        ths[i]->join();
+    }
+
+}
+
+int main() {
+    /* ********** init rocksdb ********** */
+
+    rocksdb::DB* db;
+    rocksdb::Options options;
+    options.create_if_missing = true;
+    options.error_if_exists = true;
+    std::shared_ptr<rocksdb::WriteBatch> b;
+
+    rocksdb::Status s = rocksdb::DB::Open(options, "./data", &db);
+    assert(s.ok());
+    
+    
+    uint64_t utm = gtm();
+
+    multi_put(b);
+    
+    if(NULL == b.get()) {
+        delete db;
+        return -1;
+    }
+    db->Write(rocksdb::WriteOptions(), b.get());
+    
+    delete db;
+    
+    utm = gtm() - utm;
+    std::cout << "utm:" << utm << std::endl;
+}
